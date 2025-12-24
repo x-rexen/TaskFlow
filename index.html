@@ -1,0 +1,983 @@
+<!doctype html>
+<html lang="en" class="h-full">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TaskFlow Pro</title>
+  <script src="/_sdk/element_sdk.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      box-sizing: border-box;
+    }
+    
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap');
+    
+    * {
+      font-family: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    
+    .gradient-bg {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    
+    .list-item {
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    .list-item:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+    }
+    
+    .delete-btn, .edit-btn, .priority-btn {
+      opacity: 0;
+      transition: all 0.2s ease;
+    }
+    
+    .list-item:hover .delete-btn,
+    .list-item:hover .edit-btn,
+    .list-item:hover .priority-btn {
+      opacity: 1;
+    }
+    
+    .toast {
+      animation: slideIn 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    }
+    
+    @keyframes slideIn {
+      from {
+        transform: translateX(400px);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+    
+    .fade-out {
+      animation: fadeOut 0.3s ease forwards;
+    }
+    
+    @keyframes fadeOut {
+      to {
+        opacity: 0;
+        transform: translateX(400px);
+      }
+    }
+    
+    .priority-high {
+      border-left: 4px solid #ef4444;
+    }
+    
+    .priority-medium {
+      border-left: 4px solid #f59e0b;
+    }
+    
+    .priority-low {
+      border-left: 4px solid #10b981;
+    }
+    
+    .star-icon {
+      transition: all 0.2s ease;
+    }
+    
+    .star-icon:hover {
+      transform: scale(1.2) rotate(15deg);
+    }
+    
+    .modal-backdrop {
+      animation: fadeInBackdrop 0.3s ease;
+    }
+    
+    @keyframes fadeInBackdrop {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    
+    .modal-content {
+      animation: scaleIn 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    }
+    
+    @keyframes scaleIn {
+      from {
+        transform: scale(0.8);
+        opacity: 0;
+      }
+      to {
+        transform: scale(1);
+        opacity: 1;
+      }
+    }
+    
+    .progress-bar {
+      transition: width 0.5s ease;
+    }
+    
+    .tag {
+      transition: all 0.2s ease;
+    }
+    
+    .tag:hover {
+      transform: scale(1.05);
+    }
+    
+    .search-highlight {
+      background-color: #fef08a;
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+    
+    .confetti {
+      position: fixed;
+      width: 10px;
+      height: 10px;
+      pointer-events: none;
+      animation: confettiFall 3s linear forwards;
+    }
+    
+    @keyframes confettiFall {
+      to {
+        transform: translateY(100vh) rotate(720deg);
+        opacity: 0;
+      }
+    }
+  </style>
+  <style>@view-transition { navigation: auto; }</style>
+  <script src="/_sdk/data_sdk.js" type="text/javascript"></script>
+ </head>
+ <body class="h-full">
+  <div id="app" class="w-full h-full overflow-auto"></div>
+  <div id="modal-root"></div>
+  <script>
+    const defaultConfig = {
+      app_title: "TaskFlow Pro",
+      new_list_placeholder: "Enter list name...",
+      new_item_placeholder: "Add new item...",
+      background_color: "#f0f4ff",
+      surface_color: "#ffffff",
+      text_color: "#1e293b",
+      primary_action_color: "#8b5cf6",
+      secondary_action_color: "#ec4899",
+      font_family: "Poppins",
+      font_size: 16
+    };
+    
+    let lists = [];
+    let currentListId = null;
+    let searchQuery = '';
+    let filterPriority = 'all';
+    let filterTag = 'all';
+    let sortBy = 'date';
+    
+    function loadLists() {
+      const stored = localStorage.getItem('listMakerProData');
+      if (stored) {
+        const data = JSON.parse(stored);
+        lists = data.lists || [];
+        currentListId = data.currentListId || null;
+      }
+    }
+    
+    function saveLists() {
+      localStorage.setItem('listMakerProData', JSON.stringify({
+        lists,
+        currentListId
+      }));
+    }
+    
+    function showConfetti() {
+      const colors = ['#ff6b6b', '#4ecdc4', '#45b7d1', '#f9ca24', '#6c5ce7', '#a29bfe'];
+      for (let i = 0; i < 30; i++) {
+        setTimeout(() => {
+          const confetti = document.createElement('div');
+          confetti.className = 'confetti';
+          confetti.style.left = Math.random() * 100 + '%';
+          confetti.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+          confetti.style.animationDelay = Math.random() * 0.5 + 's';
+          document.body.appendChild(confetti);
+          setTimeout(() => confetti.remove(), 3000);
+        }, i * 30);
+      }
+    }
+    
+    function showToast(message, type = 'success') {
+      const config = window.elementSdk?.config || defaultConfig;
+      const toastContainer = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = 'toast px-6 py-4 rounded-xl shadow-2xl text-white font-medium flex items-center gap-3';
+      
+      const bgColor = type === 'success' ? (config.primary_action_color || defaultConfig.primary_action_color) : '#ef4444';
+      toast.style.backgroundColor = bgColor;
+      
+      const icon = type === 'success' ? '✓' : '⚠';
+      toast.innerHTML = `<span class="text-2xl">${icon}</span><span>${message}</span>`;
+      toastContainer.appendChild(toast);
+      
+      setTimeout(() => {
+        toast.classList.add('fade-out');
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+    
+    function createList(name, color = null) {
+      const colors = ['#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#ef4444'];
+      const newList = {
+        id: Date.now().toString(),
+        name: name,
+        color: color || colors[Math.floor(Math.random() * colors.length)],
+        items: [],
+        tags: [],
+        createdAt: Date.now(),
+        starred: false
+      };
+      lists.push(newList);
+      currentListId = newList.id;
+      saveLists();
+      showToast('���� List created!');
+      render();
+    }
+    
+    function deleteList(listId) {
+      lists = lists.filter(l => l.id !== listId);
+      if (currentListId === listId) {
+        currentListId = lists.length > 0 ? lists[0].id : null;
+      }
+      saveLists();
+      showToast('List deleted');
+      render();
+    }
+    
+    function toggleListStar(listId) {
+      const list = lists.find(l => l.id === listId);
+      if (list) {
+        list.starred = !list.starred;
+        saveLists();
+        render();
+      }
+    }
+    
+    function addItem(text, priority = 'medium', dueDate = null) {
+      const list = lists.find(l => l.id === currentListId);
+      if (list) {
+        list.items.push({
+          id: Date.now().toString(),
+          text: text,
+          completed: false,
+          priority: priority,
+          dueDate: dueDate,
+          tags: [],
+          notes: '',
+          createdAt: Date.now()
+        });
+        saveLists();
+        showToast('✨ Item added!');
+        render();
+      }
+    }
+    
+    function toggleItem(itemId) {
+      const list = lists.find(l => l.id === currentListId);
+      if (list) {
+        const item = list.items.find(i => i.id === itemId);
+        if (item) {
+          item.completed = !item.completed;
+          if (item.completed) {
+            showConfetti();
+            showToast('🎊 Great job!');
+          }
+          saveLists();
+          render();
+        }
+      }
+    }
+    
+    function deleteItem(itemId) {
+      const list = lists.find(l => l.id === currentListId);
+      if (list) {
+        list.items = list.items.filter(i => i.id !== itemId);
+        saveLists();
+        showToast('Item removed');
+        render();
+      }
+    }
+    
+    function editItem(itemId) {
+      const list = lists.find(l => l.id === currentListId);
+      if (list) {
+        const item = list.items.find(i => i.id === itemId);
+        if (item) {
+          showEditModal(item);
+        }
+      }
+    }
+    
+    function updateItem(itemId, updates) {
+      const list = lists.find(l => l.id === currentListId);
+      if (list) {
+        const item = list.items.find(i => i.id === itemId);
+        if (item) {
+          Object.assign(item, updates);
+          saveLists();
+          showToast('Item updated!');
+          render();
+        }
+      }
+    }
+    
+    function duplicateList(listId) {
+      const list = lists.find(l => l.id === listId);
+      if (list) {
+        const newList = {
+          ...list,
+          id: Date.now().toString(),
+          name: list.name + ' (Copy)',
+          items: list.items.map(item => ({...item, id: Date.now().toString() + Math.random()})),
+          createdAt: Date.now()
+        };
+        lists.push(newList);
+        saveLists();
+        showToast('📋 List duplicated!');
+        render();
+      }
+    }
+    
+    function clearCompleted() {
+      const list = lists.find(l => l.id === currentListId);
+      if (list) {
+        const beforeCount = list.items.length;
+        list.items = list.items.filter(i => !i.completed);
+        const removedCount = beforeCount - list.items.length;
+        if (removedCount > 0) {
+          saveLists();
+          showToast(`✓ ${removedCount} completed item${removedCount > 1 ? 's' : ''} cleared`);
+          render();
+        }
+      }
+    }
+    
+    function addTagToItem(itemId, tag) {
+      const list = lists.find(l => l.id === currentListId);
+      if (list) {
+        const item = list.items.find(i => i.id === itemId);
+        if (item && !item.tags.includes(tag)) {
+          item.tags.push(tag);
+          saveLists();
+          render();
+        }
+      }
+    }
+    
+    function exportList(listId) {
+      const list = lists.find(l => l.id === listId);
+      if (list) {
+        const text = `${list.name}\n${'='.repeat(list.name.length)}\n\n` +
+          list.items.map(item => `${item.completed ? '✓' : '○'} ${item.text}${item.priority !== 'medium' ? ` [${item.priority}]` : ''}`).join('\n');
+        
+        const blob = new Blob([text], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${list.name}.txt`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('📥 List exported!');
+      }
+    }
+    
+    function showEditModal(item) {
+      const config = window.elementSdk?.config || defaultConfig;
+      const modalRoot = document.getElementById('modal-root');
+      
+      modalRoot.innerHTML = `
+        <div class="modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onclick="closeModal(event)">
+          <div class="modal-content rounded-2xl shadow-2xl max-w-md w-full p-6" style="background-color: ${config.surface_color || defaultConfig.surface_color};" onclick="event.stopPropagation()">
+            <h3 class="font-bold mb-4" style="color: ${config.text_color || defaultConfig.text_color}; font-size: ${(config.font_size || defaultConfig.font_size) * 1.5}px;">Edit Item</h3>
+            
+            <form id="edit-form">
+              <label class="block mb-4">
+                <span class="block mb-2 font-medium" style="color: ${config.text_color || defaultConfig.text_color}; font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px;">Item Text</span>
+                <input 
+                  type="text" 
+                  id="edit-text"
+                  value="${item.text}"
+                  class="w-full px-4 py-2 rounded-lg border-2 focus:outline-none focus:ring-2"
+                  style="border-color: ${config.secondary_action_color || defaultConfig.secondary_action_color}33; color: ${config.text_color || defaultConfig.text_color}; font-size: ${config.font_size || defaultConfig.font_size}px;"
+                />
+              </label>
+              
+              <label class="block mb-4">
+                <span class="block mb-2 font-medium" style="color: ${config.text_color || defaultConfig.text_color}; font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px;">Priority</span>
+                <select 
+                  id="edit-priority"
+                  class="w-full px-4 py-2 rounded-lg border-2 focus:outline-none focus:ring-2"
+                  style="border-color: ${config.secondary_action_color || defaultConfig.secondary_action_color}33; color: ${config.text_color || defaultConfig.text_color}; font-size: ${config.font_size || defaultConfig.font_size}px;"
+                >
+                  <option value="low" ${item.priority === 'low' ? 'selected' : ''}>Low</option>
+                  <option value="medium" ${item.priority === 'medium' ? 'selected' : ''}>Medium</option>
+                  <option value="high" ${item.priority === 'high' ? 'selected' : ''}>High</option>
+                </select>
+              </label>
+              
+              <label class="block mb-4">
+                <span class="block mb-2 font-medium" style="color: ${config.text_color || defaultConfig.text_color}; font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px;">Due Date</span>
+                <input 
+                  type="date" 
+                  id="edit-date"
+                  value="${item.dueDate || ''}"
+                  class="w-full px-4 py-2 rounded-lg border-2 focus:outline-none focus:ring-2"
+                  style="border-color: ${config.secondary_action_color || defaultConfig.secondary_action_color}33; color: ${config.text_color || defaultConfig.text_color}; font-size: ${config.font_size || defaultConfig.font_size}px;"
+                />
+              </label>
+              
+              <label class="block mb-6">
+                <span class="block mb-2 font-medium" style="color: ${config.text_color || defaultConfig.text_color}; font-size: ${(config.font_size || defaultConfig.font_size) * 0.9}px;">Notes</span>
+                <textarea 
+                  id="edit-notes"
+                  rows="3"
+                  class="w-full px-4 py-2 rounded-lg border-2 focus:outline-none focus:ring-2"
+                  style="border-color: ${config.secondary_action_color || defaultConfig.secondary_action_color}33; color: ${config.text_color || defaultConfig.text_color}; font-size: ${config.font_size || defaultConfig.font_size}px;"
+                >${item.notes || ''}</textarea>
+              </label>
+              
+              <div class="flex gap-3">
+                <button 
+                  type="submit"
+                  class="flex-1 px-4 py-3 rounded-lg font-semibold text-white transition-all hover:opacity-90"
+                  style="background-color: ${config.primary_action_color || defaultConfig.primary_action_color}; font-size: ${config.font_size || defaultConfig.font_size}px;"
+                >
+                  Save Changes
+                </button>
+                <button 
+                  type="button"
+                  onclick="closeModal()"
+                  class="px-4 py-3 rounded-lg font-semibold transition-all hover:opacity-90"
+                  style="background-color: ${config.secondary_action_color || defaultConfig.secondary_action_color}33; color: ${config.text_color || defaultConfig.text_color}; font-size: ${config.font_size || defaultConfig.font_size}px;"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('edit-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        updateItem(item.id, {
+          text: document.getElementById('edit-text').value,
+          priority: document.getElementById('edit-priority').value,
+          dueDate: document.getElementById('edit-date').value || null,
+          notes: document.getElementById('edit-notes').value
+        });
+        closeModal();
+      });
+    }
+    
+    window.closeModal = function(event) {
+      if (!event || event.target.classList.contains('modal-backdrop')) {
+        document.getElementById('modal-root').innerHTML = '';
+      }
+    };
+    
+    function getFilteredItems(items) {
+      let filtered = items.filter(item => {
+        const matchesSearch = item.text.toLowerCase().includes(searchQuery.toLowerCase());
+        const matchesPriority = filterPriority === 'all' || item.priority === filterPriority;
+        const matchesTag = filterTag === 'all' || item.tags.includes(filterTag);
+        return matchesSearch && matchesPriority && matchesTag;
+      });
+      
+      filtered.sort((a, b) => {
+        if (sortBy === 'date') return b.createdAt - a.createdAt;
+        if (sortBy === 'priority') {
+          const priorityOrder = { high: 3, medium: 2, low: 1 };
+          return priorityOrder[b.priority] - priorityOrder[a.priority];
+        }
+        if (sortBy === 'alphabetical') return a.text.localeCompare(b.text);
+        return 0;
+      });
+      
+      return filtered;
+    }
+    
+    function getAllTags() {
+      const tags = new Set();
+      lists.forEach(list => {
+        list.items.forEach(item => {
+          item.tags.forEach(tag => tags.add(tag));
+        });
+      });
+      return Array.from(tags);
+    }
+    
+    function render() {
+      const config = window.elementSdk?.config || defaultConfig;
+      const app = document.getElementById('app');
+      const currentList = lists.find(l => l.id === currentListId);
+      
+      const customFont = config.font_family || defaultConfig.font_family;
+      const baseSize = config.font_size || defaultConfig.font_size;
+      const baseFontStack = '-apple-system, BlinkMacSystemFont, sans-serif';
+      
+      app.style.background = `linear-gradient(135deg, ${config.background_color || defaultConfig.background_color} 0%, ${adjustColor(config.background_color || defaultConfig.background_color, -20)} 100%)`;
+      app.style.fontFamily = `${customFont}, ${baseFontStack}`;
+      
+      const starredLists = lists.filter(l => l.starred);
+      const regularLists = lists.filter(l => !l.starred);
+      
+      app.innerHTML = `
+        <div class="w-full min-h-full p-6">
+          <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2"></div>
+          
+          <div class="max-w-7xl mx-auto mb-8">
+            <div class="rounded-2xl shadow-xl p-8" style="background: linear-gradient(135deg, ${config.primary_action_color || defaultConfig.primary_action_color}, ${config.secondary_action_color || defaultConfig.secondary_action_color});">
+              <h1 id="app-title" class="font-extrabold text-white mb-2" style="font-size: ${baseSize * 2.5}px;">${config.app_title || defaultConfig.app_title}</h1>
+              <p class="text-white opacity-90" style="font-size: ${baseSize * 1.1}px;">Organize everything with style and power 🚀</p>
+              <div class="mt-4 flex gap-4 text-white">
+                <div class="flex items-center gap-2">
+                  <span class="text-3xl">📝</span>
+                  <span style="font-size: ${baseSize}px;">${lists.length} Lists</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-3xl">✓</span>
+                  <span style="font-size: ${baseSize}px;">${lists.reduce((sum, l) => sum + l.items.filter(i => i.completed).length, 0)} Completed</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="text-3xl">⭐</span>
+                  <span style="font-size: ${baseSize}px;">${starredLists.length} Starred</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <div class="lg:col-span-1">
+              <div class="rounded-2xl shadow-xl p-6 mb-6" style="background-color: ${config.surface_color || defaultConfig.surface_color};">
+                <h2 class="font-bold mb-4 flex items-center gap-2" style="color: ${config.text_color || defaultConfig.text_color}; font-size: ${baseSize * 1.3}px;">
+                  <span>📚</span> My Lists
+                </h2>
+                
+                <form id="new-list-form" class="mb-4">
+                  <input 
+                    type="text" 
+                    id="new-list-input"
+                    placeholder="${config.new_list_placeholder || defaultConfig.new_list_placeholder}"
+                    class="w-full px-4 py-3 rounded-xl border-2 mb-3 focus:outline-none focus:ring-2 transition-all"
+                    style="border-color: ${config.secondary_action_color || defaultConfig.secondary_action_color}33; color: ${config.text_color || defaultConfig.text_color}; font-size: ${baseSize}px;"
+                  />
+                  <button 
+                    type="submit"
+                    class="w-full px-4 py-3 rounded-xl font-bold text-white transition-all hover:opacity-90 hover:scale-105"
+                    style="background: linear-gradient(135deg, ${config.primary_action_color || defaultConfig.primary_action_color}, ${config.secondary_action_color || defaultConfig.secondary_action_color}); font-size: ${baseSize}px;"
+                  >
+                    ✨ Create List
+                  </button>
+                </form>
+                
+                ${starredLists.length > 0 ? `
+                  <div class="mb-4">
+                    <p class="font-semibold mb-2 flex items-center gap-2" style="color: ${config.secondary_action_color || defaultConfig.secondary_action_color}; font-size: ${baseSize * 0.9}px;">
+                      <span>⭐</span> Starred
+                    </p>
+                    <div class="space-y-2">
+                      ${starredLists.map(list => renderListItem(list, config, baseSize)).join('')}
+                    </div>
+                  </div>
+                ` : ''}
+                
+                <div class="space-y-2">
+                  ${lists.length === 0 ? `
+                    <p style="color: ${config.secondary_action_color || defaultConfig.secondary_action_color}; font-size: ${baseSize * 0.9}px;" class="text-center py-4">No lists yet. Create one! 🎯</p>
+                  ` : regularLists.map(list => renderListItem(list, config, baseSize)).join('')}
+                </div>
+              </div>
+              
+              ${currentList ? `
+                <div class="rounded-2xl shadow-xl p-6" style="background-color: ${config.surface_color || defaultConfig.surface_color};">
+                  <h3 class="font-bold mb-4" style="color: ${config.text_color || defaultConfig.text_color}; font-size: ${baseSize * 1.1}px;">📊 Stats</h3>
+                  <div class="space-y-3">
+                    <div>
+                      <p style="color: ${config.secondary_action_color || defaultConfig.secondary_action_color}; font-size: ${baseSize * 0.85}px;">Progress</p>
+                      <div class="w-full bg-gray-200 rounded-full h-3 mt-1">
+                        <div class="progress-bar h-3 rounded-full" style="width: ${currentList.items.length > 0 ? (currentList.items.filter(i => i.completed).length / currentList.items.length * 100) : 0}%; background-color: ${config.primary_action_color || defaultConfig.primary_action_color};"></div>
+                      </div>
+                      <p style="color: ${config.text_color || defaultConfig.text_color}; font-size: ${baseSize * 0.85}px;" class="mt-1">${currentList.items.filter(i => i.completed).length} / ${currentList.items.length}</p>
+                    </div>
+                    <div class="flex justify-between">
+                      <span style="color: ${config.secondary_action_color || defaultConfig.secondary_action_color}; font-size: ${baseSize * 0.85}px;">High Priority</span>
+                      <span class="font-bold" style="color: #ef4444; font-size: ${baseSize * 0.85}px;">${currentList.items.filter(i => i.priority === 'high').length}</span>
+                    </div>
+                    <div class="flex justify-between">
+                      <span style="color: ${config.secondary_action_color || defaultConfig.secondary_action_color}; font-size: ${baseSize * 0.85}px;">Remaining</span>
+                      <span class="font-bold" style="color: ${config.primary_action_color || defaultConfig.primary_action_color}; font-size: ${baseSize * 0.85}px;">${currentList.items.filter(i => !i.completed).length}</span>
+                    </div>
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+            
+            <div class="lg:col-span-3">
+              ${!currentList ? `
+                <div class="rounded-2xl shadow-xl p-16 text-center" style="background-color: ${config.surface_color || defaultConfig.surface_color};">
+                  <div class="text-8xl mb-4">📝</div>
+                  <p class="font-bold mb-2" style="color: ${config.text_color || defaultConfig.text_color}; font-size: ${baseSize * 1.5}px;">Ready to get organized?</p>
+                  <p style="color: ${config.secondary_action_color || defaultConfig.secondary_action_color}; font-size: ${baseSize * 1.1}px;">Select a list or create a new one to get started</p>
+                </div>
+              ` : `
+                <div class="rounded-2xl shadow-xl p-6" style="background-color: ${config.surface_color || defaultConfig.surface_color};">
+                  <div class="flex items-center justify-between mb-6 pb-4 border-b-2" style="border-color: ${config.secondary_action_color || defaultConfig.secondary_action_color}22;">
+                    <div class="flex items-center gap-3">
+                      <div class="w-4 h-12 rounded-full" style="background-color: ${currentList.color};"></div>
+                      <h2 class="font-extrabold" style="color: ${config.text_color || defaultConfig.text_color}; font-size: ${baseSize * 1.8}px;">${currentList.name}</h2>
+                    </div>
+                    <div class="flex gap-2">
+                      <button 
+                        onclick="exportList('${currentList.id}')"
+                        class="px-4 py-2 rounded-xl font-semibold transition-all hover:scale-105"
+                        style="background-color: ${config.secondary_action_color || defaultConfig.secondary_action_color}22; color: ${config.text_color || defaultConfig.text_color}; font-size: ${baseSize * 0.85}px;"
+                        title="Export list"
+                      >
+                        📥 Export
+                      </button>
+                      <button 
+                        onclick="duplicateList('${currentList.id}')"
+                        class="px-4 py-2 rounded-xl font-semibold transition-all hover:scale-105"
+                        style="background-color: ${config.secondary_action_color || defaultConfig.secondary_action_color}22; color: ${config.text_color || defaultConfig.text_color}; font-size: ${baseSize * 0.85}px;"
+                        title="Duplicate list"
+                      >
+                        📋 Duplicate
+                      </button>
+                      <button 
+                        onclick="clearCompleted()"
+                        class="px-4 py-2 rounded-xl font-semibold transition-all hover:scale-105"
+                        style="background-color: ${config.secondary_action_color || defaultConfig.secondary_action_color}22; color: ${config.text_color || defaultConfig.text_color}; font-size: ${baseSize * 0.85}px;"
+                        title="Clear completed items"
+                      >
+                        ����️ Clear Done
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <!-- Add Item Form -->
+                  <form id="add-item-form" class="mb-6">
+                    <div class="flex gap-3">
+                      <input 
+                        type="text" 
+                        id="new-item-input"
+                        placeholder="${config.new_item_placeholder || defaultConfig.new_item_placeholder}"
+                        class="flex-1 px-5 py-4 rounded-xl border-2 focus:outline-none focus:ring-2 transition-all"
+                        style="border-color: ${config.secondary_action_color || defaultConfig.secondary_action_color}33; color: ${config.text_color || defaultConfig.text_color}; font-size: ${baseSize}px;"
+                      />
+                      <select 
+                        id="priority-select"
+                        class="px-4 py-4 rounded-xl border-2 focus:outline-none focus:ring-2 transition-all"
+                        style="border-color: ${config.secondary_action_color || defaultConfig.secondary_action_color}33; color: ${config.text_color || defaultConfig.text_color}; font-size: ${baseSize}px;"
+                      >
+                        <option value="low">🟢 Low</option>
+                        <option value="medium" selected>🟡 Medium</option>
+                        <option value="high">🔴 High</option>
+                      </select>
+                      <button 
+                        type="submit"
+                        class="px-8 py-4 rounded-xl font-bold text-white transition-all hover:scale-105"
+                        style="background: linear-gradient(135deg, ${config.primary_action_color || defaultConfig.primary_action_color}, ${config.secondary_action_color || defaultConfig.secondary_action_color}); font-size: ${baseSize}px;"
+                      >
+                        ➕ Add
+                      </button>
+                    </div>
+                  </form>
+                  
+                  <!-- Filters and Search -->
+                  <div class="mb-6 flex flex-wrap gap-3">
+                    <input 
+                      type="text" 
+                      id="search-input"
+                      value="${searchQuery}"
+                      placeholder="🔍 Search items..."
+                      class="flex-1 min-w-[200px] px-4 py-2 rounded-xl border-2 focus:outline-none focus:ring-2"
+                      style="border-color: ${config.secondary_action_color || defaultConfig.secondary_action_color}33; color: ${config.text_color || defaultConfig.text_color}; font-size: ${baseSize * 0.9}px;"
+                    />
+                    <select 
+                      id="filter-priority"
+                      value="${filterPriority}"
+                      class="px-4 py-2 rounded-xl border-2 focus:outline-none"
+                      style="border-color: ${config.secondary_action_color || defaultConfig.secondary_action_color}33; color: ${config.text_color || defaultConfig.text_color}; font-size: ${baseSize * 0.9}px;"
+                    >
+                      <option value="all" ${filterPriority === 'all' ? 'selected' : ''}>All Priorities</option>
+                      <option value="high" ${filterPriority === 'high' ? 'selected' : ''}>🔴 High</option>
+                      <option value="medium" ${filterPriority === 'medium' ? 'selected' : ''}>🟡 Medium</option>
+                      <option value="low" ${filterPriority === 'low' ? 'selected' : ''}>🟢 Low</option>
+                    </select>
+                    <select 
+                      id="sort-select"
+                      value="${sortBy}"
+                      class="px-4 py-2 rounded-xl border-2 focus:outline-none"
+                      style="border-color: ${config.secondary_action_color || defaultConfig.secondary_action_color}33; color: ${config.text_color || defaultConfig.text_color}; font-size: ${baseSize * 0.9}px;"
+                    >
+                      <option value="date" ${sortBy === 'date' ? 'selected' : ''}>Sort by Date</option>
+                      <option value="priority" ${sortBy === 'priority' ? 'selected' : ''}>Sort by Priority</option>
+                      <option value="alphabetical" ${sortBy === 'alphabetical' ? 'selected' : ''}>Sort A-Z</option>
+                    </select>
+                  </div>
+                  
+                  <!-- Items -->
+                  <div class="space-y-3">
+                    ${currentList.items.length === 0 ? `
+                      <div class="text-center py-12">
+                        <div class="text-6xl mb-4">🎯</div>
+                        <p class="font-bold mb-2" style="color: ${config.text_color || defaultConfig.text_color}; font-size: ${baseSize * 1.2}px;">No items yet!</p>
+                        <p style="color: ${config.secondary_action_color || defaultConfig.secondary_action_color}; font-size: ${baseSize}px;">Add your first item to get started</p>
+                      </div>
+                    ` : getFilteredItems(currentList.items).map(item => `
+                      <div class="list-item flex items-start gap-4 p-5 rounded-xl priority-${item.priority}" style="background-color: ${config.background_color || defaultConfig.background_color};">
+                        <input 
+                          type="checkbox" 
+                          ${item.completed ? 'checked' : ''}
+                          onchange="toggleItem('${item.id}')"
+                          class="w-6 h-6 rounded-lg cursor-pointer mt-1 flex-shrink-0"
+                          style="accent-color: ${config.primary_action_color || defaultConfig.primary_action_color};"
+                        />
+                        <div class="flex-1 min-w-0">
+                          <p class="font-medium ${item.completed ? 'line-through opacity-50' : ''}" style="color: ${config.text_color || defaultConfig.text_color}; font-size: ${baseSize * 1.05}px;">${item.text}</p>
+                          ${item.notes ? `<p class="mt-1 opacity-70" style="color: ${config.text_color || defaultConfig.text_color}; font-size: ${baseSize * 0.85}px;">${item.notes}</p>` : ''}
+                          <div class="flex flex-wrap gap-2 mt-2">
+                            ${item.dueDate ? `<span class="px-3 py-1 rounded-full text-white font-medium" style="background-color: ${config.secondary_action_color || defaultConfig.secondary_action_color}; font-size: ${baseSize * 0.75}px;">📅 ${new Date(item.dueDate).toLocaleDateString()}</span>` : ''}
+                            ${item.tags.map(tag => `<span class="tag px-3 py-1 rounded-full text-white font-medium" style="background-color: ${config.primary_action_color || defaultConfig.primary_action_color}; font-size: ${baseSize * 0.75}px;">#${tag}</span>`).join('')}
+                          </div>
+                        </div>
+                        <div class="flex gap-2 flex-shrink-0">
+                          <button 
+                            class="edit-btn px-3 py-2 rounded-lg text-white transition-all hover:scale-110"
+                            style="background-color: ${config.primary_action_color || defaultConfig.primary_action_color}; font-size: ${baseSize * 0.85}px;"
+                            onclick="editItem('${item.id}')"
+                            title="Edit item"
+                          >
+                            ✏️
+                          </button>
+                          <button 
+                            class="delete-btn px-3 py-2 rounded-lg text-white transition-all hover:scale-110"
+                            style="background-color: ${config.secondary_action_color || defaultConfig.secondary_action_color}; font-size: ${baseSize * 0.85}px;"
+                            onclick="deleteItem('${item.id}')"
+                            title="Delete item"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </div>
+                    `).join('')}
+                  </div>
+                </div>
+              `}
+            </div>
+          </div>
+        </div>
+      `;
+      
+      // Attach event listeners
+      const newListForm = document.getElementById('new-list-form');
+      if (newListForm) {
+        newListForm.addEventListener('submit', (e) => {
+          e.preventDefault();
+          const input = document.getElementById('new-list-input');
+          if (input.value.trim()) {
+            createList(input.value.trim());
+            input.value = '';
+          }
+        });
+      }
+      
+      const addItemForm = document.getElementById('add-item-form');
+      if (addItemForm) {
+        addItemForm.addEventListener('submit', (e) => {
+          e.preventDefault();
+          const input = document.getElementById('new-item-input');
+          const priority = document.getElementById('priority-select').value;
+          if (input.value.trim()) {
+            addItem(input.value.trim(), priority);
+            input.value = '';
+          }
+        });
+      }
+      
+      const searchInput = document.getElementById('search-input');
+      if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+          searchQuery = e.target.value;
+          render();
+        });
+      }
+      
+      const filterPrioritySelect = document.getElementById('filter-priority');
+      if (filterPrioritySelect) {
+        filterPrioritySelect.addEventListener('change', (e) => {
+          filterPriority = e.target.value;
+          render();
+        });
+      }
+      
+      const sortSelect = document.getElementById('sort-select');
+      if (sortSelect) {
+        sortSelect.addEventListener('change', (e) => {
+          sortBy = e.target.value;
+          render();
+        });
+      }
+    }
+    
+    function renderListItem(list, config, baseSize) {
+      const completedCount = list.items.filter(i => i.completed).length;
+      const totalCount = list.items.length;
+      const percentage = totalCount > 0 ? (completedCount / totalCount * 100) : 0;
+      
+      return `
+        <div class="list-item p-4 rounded-xl cursor-pointer transition-all ${list.id === currentListId ? 'ring-2' : ''}" 
+             style="background-color: ${list.id === currentListId ? config.primary_action_color + '15' : config.background_color || defaultConfig.background_color}; ${list.id === currentListId ? `border-color: ${config.primary_action_color || defaultConfig.primary_action_color};` : ''}"
+             onclick="selectList('${list.id}')">
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2 flex-1 min-w-0">
+              <div class="w-3 h-3 rounded-full flex-shrink-0" style="background-color: ${list.color};"></div>
+              <p class="font-semibold truncate" style="color: ${config.text_color || defaultConfig.text_color}; font-size: ${baseSize * 0.95}px;">${list.name}</p>
+            </div>
+            <div class="flex items-center gap-2 flex-shrink-0 ml-2">
+              <button 
+                class="star-icon"
+                onclick="event.stopPropagation(); toggleListStar('${list.id}')"
+                style="font-size: ${baseSize * 1.2}px;"
+              >
+                ${list.starred ? '⭐' : '☆'}
+              </button>
+              <button 
+                class="delete-btn px-2 py-1 rounded text-white transition-all hover:scale-110"
+                style="background-color: ${config.secondary_action_color || defaultConfig.secondary_action_color}; font-size: ${baseSize * 0.75}px;"
+                onclick="event.stopPropagation(); deleteList('${list.id}')"
+                title="Delete list"
+              >
+                🗑️
+              </button>
+            </div>
+          </div>
+          <div class="flex items-center justify-between">
+            <p style="color: ${config.secondary_action_color || defaultConfig.secondary_action_color}; font-size: ${baseSize * 0.8}px;">${totalCount} items</p>
+            <p class="font-bold" style="color: ${config.primary_action_color || defaultConfig.primary_action_color}; font-size: ${baseSize * 0.8}px;">${Math.round(percentage)}%</p>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-1.5 mt-2">
+            <div class="h-1.5 rounded-full transition-all" style="width: ${percentage}%; background-color: ${list.color};"></div>
+          </div>
+        </div>
+      `;
+    }
+    
+    function adjustColor(color, amount) {
+      const clamp = (num) => Math.min(Math.max(num, 0), 255);
+      const num = parseInt(color.replace('#', ''), 16);
+      const r = clamp((num >> 16) + amount);
+      const g = clamp(((num >> 8) & 0x00FF) + amount);
+      const b = clamp((num & 0x0000FF) + amount);
+      return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
+    }
+    
+    window.selectList = (listId) => {
+      currentListId = listId;
+      searchQuery = '';
+      filterPriority = 'all';
+      filterTag = 'all';
+      sortBy = 'date';
+      saveLists();
+      render();
+    };
+    
+    window.deleteList = deleteList;
+    window.toggleListStar = toggleListStar;
+    window.toggleItem = toggleItem;
+    window.deleteItem = deleteItem;
+    window.editItem = editItem;
+    window.duplicateList = duplicateList;
+    window.clearCompleted = clearCompleted;
+    window.exportList = exportList;
+    
+    async function onConfigChange(config) {
+      render();
+    }
+    
+    function mapToCapabilities(config) {
+      return {
+        recolorables: [
+          {
+            get: () => config.background_color || defaultConfig.background_color,
+            set: (value) => {
+              config.background_color = value;
+              window.elementSdk.setConfig({ background_color: value });
+            }
+          },
+          {
+            get: () => config.surface_color || defaultConfig.surface_color,
+            set: (value) => {
+              config.surface_color = value;
+              window.elementSdk.setConfig({ surface_color: value });
+            }
+          },
+          {
+            get: () => config.text_color || defaultConfig.text_color,
+            set: (value) => {
+              config.text_color = value;
+              window.elementSdk.setConfig({ text_color: value });
+            }
+          },
+          {
+            get: () => config.primary_action_color || defaultConfig.primary_action_color,
+            set: (value) => {
+              config.primary_action_color = value;
+              window.elementSdk.setConfig({ primary_action_color: value });
+            }
+          },
+          {
+            get: () => config.secondary_action_color || defaultConfig.secondary_action_color,
+            set: (value) => {
+              config.secondary_action_color = value;
+              window.elementSdk.setConfig({ secondary_action_color: value });
+            }
+          }
+        ],
+        borderables: [],
+        fontEditable: {
+          get: () => config.font_family || defaultConfig.font_family,
+          set: (value) => {
+            config.font_family = value;
+            window.elementSdk.setConfig({ font_family: value });
+          }
+        },
+        fontSizeable: {
+          get: () => config.font_size || defaultConfig.font_size,
+          set: (value) => {
+            config.font_size = value;
+            window.elementSdk.setConfig({ font_size: value });
+          }
+        }
+      };
+    }
+    
+    function mapToEditPanelValues(config) {
+      return new Map([
+        ["app_title", config.app_title || defaultConfig.app_title],
+        ["new_list_placeholder", config.new_list_placeholder || defaultConfig.new_list_placeholder],
+        ["new_item_placeholder", config.new_item_placeholder || defaultConfig.new_item_placeholder]
+      ]);
+    }
+    
+    // Initialize
+    if (window.elementSdk) {
+      window.elementSdk.init({
+        defaultConfig,
+        onConfigChange,
+        mapToCapabilities,
+        mapToEditPanelValues
+      });
+    }
+    
+    loadLists();
+    render();
+  </script>
+ <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'9b291079549e08ed',t:'MTc2NjUwNTU0OC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</html>
